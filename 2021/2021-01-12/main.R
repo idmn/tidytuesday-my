@@ -22,41 +22,35 @@ at <-
 # ---------------------------------------------------------
 # Half of the works is from the guy called
 # Turner, Joseph Mallord William
-# so let's just analyse him
+# so let's just analyze him
+
+# year of birth
+yob <- 
+  at %>% 
+  filter(name == "Turner, Joseph Mallord William") %>% 
+  pull(yearOfBirth)
+
 
 df <- 
   at %>% 
   filter(name == "Turner, Joseph Mallord William") %>% 
   inner_join(aw, by = c("id" = "artistId")) %>% 
-  mutate(yo = year - yearOfBirth) %>% 
-  filter(!is.na(yo)) %>% 
+  filter(!is.na(year)) %>% 
   filter(!is.na(medium)) %>% 
   separate(
     medium, c("materials", "surface"), sep = " on ", extra = "merge",
     remove = FALSE
   ) %>% 
-  filter(surface == "paper") %>% 
   filter(!is.na(materials)) %>% 
   mutate(materials_lst = str_split(materials, "(, (and )?| and )"))
 
-
-# 
-df %>% 
-  count(year, sort = TRUE)
-
-
-#
-tmp <- 
+# material counts by year
+df_mat_by_year <- 
   df %>% 
-  select(materials, materials_lst) %>% 
-  filter(str_detect(materials, "and gouache")) %>% 
-  distinct()
-
-
-#
-df_mat <- 
-  df %>% 
-  select(yo, year, materials_lst) %>% 
+  select(year, materials_lst) %>% 
+  rowwise() %>% 
+  mutate(w = 1/length(materials_lst)) %>% 
+  ungroup() %>% 
   unnest(materials_lst) %>% 
   rename(material = materials_lst) %>% 
   mutate(material = str_to_lower(material)) %>% 
@@ -64,77 +58,70 @@ df_mat <-
     material == "waercolour" ~ "watercolour",
     TRUE ~ material
   )) %>% 
-  # mutate(mat = fct_lump_min(material, 1000) %>% fct_infreq())
   mutate(mat = fct_lump_min(material, 3000) %>%
            fct_infreq() %>% 
-           fct_relevel("Other", after = Inf))
+           fct_relevel("Other", after = Inf)) %>% 
+  group_by(year, mat) %>% 
+  summarise(across(w, sum))
 
-
-
-df_mat %>% 
-  count(material, sort = TRUE)
-
-df_mat %>% 
-  mutate(mat = fct_rev(mat)) %>% 
-  count(yo, mat, .drop = FALSE) %>% 
-  # filter(mat != "graphite") %>% 
-  # filter(mat == "watercolour") %>% 
-  ggplot(aes(yo, n, fill = mat)) +
-  geom_area(position = "stack") +
-  #facet_wrap(~mat, ncol = 1, scales = "free_y") +
-  scale_fill_manual(values = c(
-    "graphite" = "#f94144",
-    "watercolour" = "#f3722c",
-    "gouache" = "#f9c74f",
-    "ink" = "#90be6d",
-    "chalk" = "#43aa8b",
-    "pen" = "#4d908e",
-    "Other" = "#277da1"
-  )) +
-  theme_minimal() +
-  theme(
-    plot.background = element_rect(fill = "gray30"),
-    panel.grid.major = element_line(color = "gray70"),
-    panel.grid.minor = element_blank(),
-    axis.text = element_text(color = "grey80")
-  )
-
-# colors <- c("#f3722c","#f8961e","#f9c74f","#90be6d","#43aa8b","#4d908e","#277da1")
-colors <- c("f3722c","43aa8b","f8961e","f9c74f","277da1","90be6d","4d908e")
-colors <- paste0("#", colors)
-names(colors) <- rev(levels(df_mat$mat))
+# construct x axis labels
+range(df_mat_by_year$year)
+x_brks <- c(1787, 1800, 1820, 1840, 1856)
+x_lbls <- paste0(x_brks, "\n", x_brks - yob, " y.o.")
 
 colors <- c("9D8189","84A98C","577590")
 colors <- paste0("#", colors)
 names(colors) <- rev(levels(df_mat$mat))
-text_color <- "grey90"
+text_color <- "gray70"
+text_color_darker <- "gray60"
+line_color <- "gray31"
+bg_color <- "gray17"
 
-df_mat %>% 
+
+df_mat_by_year %>% 
   mutate(mat = fct_rev(mat)) %>% 
-  ggplot(aes(year, fill = mat, color = mat)) +
-  geom_bar(width = 1) +
+  ggplot(aes(year, w, fill = mat, color = mat)) +
+  geom_col(width = 1) +
   scale_fill_manual(values = colors) +
   scale_color_manual(values = colors) +
+  scale_x_continuous(
+    breaks = x_brks,
+    labels = x_lbls
+  ) +
+  scale_y_continuous(
+    breaks = c(0, 1000, 2000),
+    expand = c(0, 0)
+  ) +
   xlab(NULL) +
-  ylab(NULL) +
-  ggtitle("J. M. W. Turner artworks on paper") +
+  ylab("# of\nworks") +
+  ggtitle("J. M. W. Turner artwork materials") +
+  labs(caption = "Some works were created using multiple materials.
+       If an artwork e.g. was created with watercolour and graphite, 0.5 is added to both materials counts.") +
   theme_minimal() +
   theme(
-    plot.background = element_rect(fill = "gray20"),
-    panel.grid.major = element_line(color = "gray31"),
+    plot.background = element_rect(fill = bg_color),
+    panel.grid.major = element_line(color = line_color),
     panel.grid.minor = element_blank(),
     panel.grid.major.x = element_blank(),
     axis.text = element_text(color = text_color),
-    legend.text = element_text(color = text_color),
+    axis.title.y = element_text(
+      size = 8, angle = 0, vjust = 0.37,
+      color = text_color_darker
+    ),
+    text = element_text(color = text_color),
     legend.title = element_blank(),
-    plot.title = element_text(color = text_color)
+    plot.title = element_text(color = text_color),
+    plot.caption = element_text(color = text_color_darker, size = 8),
+    legend.position=c(0,0.95), 
+    legend.justification=c(0, 1), 
+    legend.key.width=unit(1, "lines"), 
+    plot.margin = unit(c(1, 1, 0.5, 0.5), "lines"),
+    axis.ticks.x = element_line(color = line_color),
+    axis.ticks.length.x = unit(5, "pt"),
   )
 
-# need two axes here: one for the guy's age, one for year
-# additional marks for high years
-# what about counts? some works are counted twice
-
-
-# simple plot to explain how much of all works is by this guy
-# how much of this guy's works in on paper
-# how much of this guy's works on paper are by graphite
+ggsave(
+  "2021/2021-01-12/plot.png",
+  height = 6,
+  width = 9
+)
